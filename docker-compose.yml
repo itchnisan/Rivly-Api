@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rivly
+      POSTGRES_PASSWORD: rivly
+      POSTGRES_DB: rivly
+    ports:
+      - "5432:5432"
+    volumes:
+      - rivly_postgres_data:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rivly"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  rivly_postgres_data:
