@@ -1,10 +1,16 @@
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
+
+if TYPE_CHECKING:
+    from app.models.species import Species
+    from app.models.spot import Spot
+    from app.models.user import User
 
 
 class Catch(Base):
@@ -17,7 +23,7 @@ class Catch(Base):
     weight_g: Mapped[int | None] = mapped_column(Integer, nullable=True)
     length_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
     caught_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    conditions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    conditions: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     photo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
