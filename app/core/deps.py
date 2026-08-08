@@ -6,8 +6,16 @@ from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.models.user import User
 from app.services import user_service
+from app.services.weather_service import OpenMeteoProvider, WeatherProvider
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+
+# Instance unique : le cache mémoire des prévisions doit survivre aux requêtes.
+_weather_provider = OpenMeteoProvider()
+
+
+def get_weather_provider() -> WeatherProvider:
+    return _weather_provider
 
 
 async def get_current_user(

@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     project_name: str = "Rivly API"
 
+    weather_api_url: str = "https://api.open-meteo.com/v1/forecast"
+    weather_timeout_seconds: float = 8.0
+    weather_cache_ttl_seconds: int = 3600
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -88,6 +88,22 @@ docker exec -i rivly-api-db-1 psql -U rivly -d rivly -c \
 - `GET /api/v1/species/{id}` avec l'id retourné → `200`, détail complet.
 - `GET /api/v1/species/999999` → `404`.
 
+## 6 bis. Indice de pêchabilité — `GET /api/v1/spots/{id}/fishability`
+
+Avec l'`id` du spot de l'étape 3. L'endpoint est public : il fonctionne cadenas ouvert.
+
+- Sans paramètre → `200`, avec un `score` de 0 à 100, un `rating`, les sept `factors`
+  détaillés (la somme des `contribution` fait le score) et les `weather` bruts ayant servi au calcul.
+- Avec `at=2026-08-09T05:00:00Z` (une aube proche) → le facteur `time_of_day` doit être au maximum.
+  Comparer avec un `at` en milieu d'après-midi : le score doit baisser.
+- Avec `at` très éloigné (ex. `2030-01-01T00:00:00Z`) → `422`, hors fenêtre de prévision.
+- Avec `species_id` = l'id du brochet inséré à l'étape 6 → les `advisories` mentionnent la taille légale.
+  Le brochet étant ouvert du 1er mai au 31 janvier, tester une date hors saison (ex. `at=2026-03-15T10:00:00Z`)
+  doit renvoyer un `score` de `0` et un avis de niveau `blocking`.
+- Sur un `id` de spot inexistant → `404`.
+
+Le premier appel sur un secteur donné interroge Open-Meteo (~200 ms) ; les suivants sortent du cache pendant une heure.
+
 ## 7. Créer une capture — `POST /api/v1/catches`
 
 Avec le token toujours autorisé (étape 2), utiliser l'`id` du spot (étape 3) et de l'espèce (étape 6) :
