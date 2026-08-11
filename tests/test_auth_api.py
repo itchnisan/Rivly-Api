@@ -10,6 +10,8 @@ async def test_register_creates_user(client):
     assert "id" in body
     assert "password" not in body
     assert "hashed_password" not in body
+    assert body["token_type"] == "bearer"
+    assert body["access_token"]
 
 
 async def test_register_duplicate_email_rejected(client):

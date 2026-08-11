@@ -26,20 +26,15 @@ Ouvrir http://localhost:8000/docs
 }
 ```
 
-Résultat attendu : `201`, réponse avec `id`, `email`, `username`, `created_at` (pas de mot de passe dans la réponse).
+Résultat attendu : `201`, réponse avec `id`, `email`, `username`, `created_at`, `access_token`, `token_type` (pas de mot de passe dans la réponse).
 
 Rejouer la même requête doit renvoyer `400` (email déjà utilisé).
 
 ## 2. S'authentifier via le bouton "Authorize"
 
-En haut de la page Swagger, cliquer sur le cadenas **Authorize**. Une fenêtre OAuth2 s'ouvre avec des champs `username` / `password` :
+Copier la valeur d'`access_token` reçue à l'étape 1. En haut de la page Swagger, cliquer sur le cadenas **Authorize**, coller le token dans le champ **Value** (pas de préfixe `Bearer` à ajouter, Swagger le fait), puis **Authorize** et **Close**. Le cadenas est maintenant fermé sur les endpoints protégés.
 
-- `username` : `pecheur@rivly.dev` (c'est l'email)
-- `password` : `secret123`
-
-Cliquer sur **Authorize** puis **Close**. Swagger appelle `POST /api/v1/auth/login` en arrière-plan, récupère le token JWT et l'ajoute automatiquement à l'en-tête `Authorization` de toutes les requêtes suivantes (cadenas maintenant fermé sur les endpoints protégés).
-
-Vérification indépendante possible via `POST /api/v1/auth/login` directement : mauvais mot de passe → `401`, email inconnu → `401`.
+`POST /api/v1/auth/login` reste disponible pour récupérer un nouveau token à partir d'un compte existant (email + mot de passe en formulaire) : mauvais mot de passe → `401`, email inconnu → `401`.
 
 ## 3. Créer un spot — `POST /api/v1/spots`
 

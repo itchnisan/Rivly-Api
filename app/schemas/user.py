@@ -17,3 +17,8 @@ class UserRead(UserBase):
 
     id: int
     created_at: datetime
+
+
+class UserReadWithToken(UserRead):
+    access_token: str
+    token_type: str = "bearer"
