@@ -32,7 +32,7 @@ def make_snapshot(**overrides) -> WeatherSnapshot:
     return WeatherSnapshot(**{**defaults, **overrides})
 
 
-def score_of(**overrides) -> int:
+def score_of(**overrides) -> float:
     return fishability_service.compute_fishability(make_snapshot(**overrides))["score"]
 
 
@@ -94,7 +94,7 @@ def test_score_stays_within_bounds_across_extremes():
         ),
     ]
     for snapshot in extremes:
-        assert 0 <= fishability_service.compute_fishability(snapshot)["score"] <= 100
+        assert 0 <= fishability_service.compute_fishability(snapshot)["score"] <= 10
 
 
 def test_factor_weights_sum_to_one_hundred():
@@ -231,6 +231,13 @@ def test_build_snapshot_rejects_a_date_outside_the_forecast_window():
         build_snapshot(open_meteo_payload(), REFERENCE_DAY + timedelta(days=30))
 
 
+def test_build_snapshot_rejects_the_hour_right_after_the_last_available_one():
+    """Sans ça, cette heure « accroche » la dernière disponible et la renvoie en double."""
+    payload = open_meteo_payload(hours=12)  # dernière heure disponible : REFERENCE_DAY + 11h
+    with pytest.raises(ForecastOutOfRange):
+        build_snapshot(payload, REFERENCE_DAY + timedelta(hours=12))
+
+
 def test_build_snapshot_rejects_an_unusable_payload():
     with pytest.raises(WeatherUnavailable):
         build_snapshot({"hourly": {}}, REFERENCE_DAY)
@@ -289,7 +296,7 @@ async def test_fishability_returns_a_scored_breakdown(client, register_user):
 
     body = resp.json()
     assert body["spot_id"] == spot_id
-    assert 0 <= body["score"] <= 100
+    assert 0 <= body["score"] <= 10
     assert body["rating"] in {"poor", "fair", "good", "excellent"}
     assert len(body["factors"]) == len(fishability_service.FACTOR_WEIGHTS)
     assert body["weather"]["pressure_trend_hpa"] == -1.5
@@ -391,3 +398,94 @@ async def test_fishability_returns_422_when_date_is_out_of_range(client, registe
         f"/api/v1/spots/{spot_id}/fishability", params={"at": "2030-01-01T12:00:00Z"}
     )
     assert resp.status_code == 422
+
+
+# --- Série (pour un graphique) ----------------------------------------------
+
+
+class StubSeriesWeatherProvider:
+    """Renvoie un instantané par heure demandée ; peut simuler une fenêtre limitée."""
+
+    def __init__(self, max_points: int | None = None):
+        self.max_points = max_points
+        self.calls: list[datetime] = []
+
+    async def get_snapshot(self, latitude, longitude, at):
+        self.calls.append(at)
+        if self.max_points is not None and len(self.calls) > self.max_points:
+            raise ForecastOutOfRange("hors fenêtre")
+        return make_snapshot(at=at)
+
+
+async def test_fishability_series_returns_one_point_per_hour(client, register_user):
+    spot_id = await create_spot(client, register_user, "series@example.com", "seriesuser")
+    use_weather(StubSeriesWeatherProvider())
+
+    resp = await client.get(f"/api/v1/spots/{spot_id}/fishability/series", params={"hours": 5})
+    assert resp.status_code == 200
+
+    body = resp.json()
+    assert body["spot_id"] == spot_id
+    points = body["points"]
+    assert len(points) == 5
+
+    times = [datetime.fromisoformat(p["at"].replace("Z", "+00:00")) for p in points]
+    assert times == sorted(times)
+    assert [t2 - t1 for t1, t2 in zip(times, times[1:])] == [timedelta(hours=1)] * 4
+    for point in points:
+        assert 0 <= point["score"] <= 10
+        assert point["rating"] in {"poor", "fair", "good", "excellent"}
+
+
+async def test_fishability_series_defaults_to_forty_eight_hours(client, register_user):
+    spot_id = await create_spot(client, register_user, "default@example.com", "defaultuser")
+    use_weather(StubSeriesWeatherProvider())
+
+    resp = await client.get(f"/api/v1/spots/{spot_id}/fishability/series")
+    assert resp.status_code == 200
+    assert len(resp.json()["points"]) == 48
+
+
+async def test_fishability_series_stops_early_at_the_forecast_window(client, register_user):
+    spot_id = await create_spot(client, register_user, "window@example.com", "windowuser")
+    use_weather(StubSeriesWeatherProvider(max_points=3))
+
+    resp = await client.get(f"/api/v1/spots/{spot_id}/fishability/series", params={"hours": 10})
+    assert resp.status_code == 200
+    assert len(resp.json()["points"]) == 3
+
+
+async def test_fishability_series_rejects_a_depth_outside_bounds(client, register_user):
+    spot_id = await create_spot(client, register_user, "bounds@example.com", "boundsuser")
+    use_weather(StubSeriesWeatherProvider())
+
+    assert (
+        await client.get(f"/api/v1/spots/{spot_id}/fishability/series", params={"hours": 0})
+    ).status_code == 422
+    assert (
+        await client.get(f"/api/v1/spots/{spot_id}/fishability/series", params={"hours": 200})
+    ).status_code == 422
+
+
+async def test_fishability_series_on_missing_spot_returns_404(client):
+    use_weather(StubSeriesWeatherProvider())
+    resp = await client.get("/api/v1/spots/999999/fishability/series")
+    assert resp.status_code == 404
+
+
+async def test_fishability_series_with_missing_species_returns_404(client, register_user):
+    spot_id = await create_spot(client, register_user, "sp404series@example.com", "sp404series")
+    use_weather(StubSeriesWeatherProvider())
+
+    resp = await client.get(
+        f"/api/v1/spots/{spot_id}/fishability/series", params={"species_id": 999999}
+    )
+    assert resp.status_code == 404
+
+
+async def test_fishability_series_returns_503_when_weather_is_unavailable(client, register_user):
+    spot_id = await create_spot(client, register_user, "downseries@example.com", "downseries")
+    use_weather(StubWeatherProvider(error=WeatherUnavailable("connexion refusée")))
+
+    resp = await client.get(f"/api/v1/spots/{spot_id}/fishability/series")
+    assert resp.status_code == 503

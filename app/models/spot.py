@@ -17,6 +17,8 @@ class WaterType(str, enum.Enum):
     RIVER = "river"
     LAKE = "lake"
     POND = "pond"
+    SEA = "sea"
+    CANAL = "canal"
 
 
 class Spot(Base):

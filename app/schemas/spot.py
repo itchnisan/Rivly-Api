@@ -31,3 +31,12 @@ class SpotRead(SpotBase):
     id: int
     created_by: int
     created_at: datetime
+
+
+class SpotLocationLookup(BaseModel):
+    """Résultat d'une recherche de lieu, pour préparer la création d'un spot."""
+
+    latitude: float
+    longitude: float
+    label: str | None = None
+    available_water_types: list[WaterType]

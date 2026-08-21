@@ -6,6 +6,8 @@ from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.models.user import User
 from app.services import user_service
+from app.services.geocoding_service import BanGeocodingProvider, GeocodingProvider
+from app.services.overpass_service import OverpassProvider, WaterTypeProvider
 from app.services.weather_service import OpenMeteoProvider, WeatherProvider
 
 
@@ -31,6 +33,22 @@ _weather_provider = OpenMeteoProvider()
 
 def get_weather_provider() -> WeatherProvider:
     return _weather_provider
+
+
+# Instance unique : le cache mémoire des détections doit survivre aux requêtes.
+_water_type_provider = OverpassProvider()
+
+
+def get_water_type_provider() -> WaterTypeProvider:
+    return _water_type_provider
+
+
+# Instance unique : le cache mémoire des recherches doit survivre aux requêtes.
+_geocoding_provider = BanGeocodingProvider()
+
+
+def get_geocoding_provider() -> GeocodingProvider:
+    return _geocoding_provider
 
 
 async def get_current_user(

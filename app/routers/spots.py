@@ -1,14 +1,26 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, get_weather_provider
+from app.core.deps import (
+    get_current_user,
+    get_geocoding_provider,
+    get_water_type_provider,
+    get_weather_provider,
+)
+from app.models.spot import WaterType
 from app.models.user import User
-from app.schemas.fishability import FishabilityRead
-from app.schemas.spot import SpotCreate, SpotRead, SpotUpdate
+from app.schemas.fishability import FishabilityPoint, FishabilityRead, FishabilitySeriesRead
+from app.schemas.spot import SpotCreate, SpotLocationLookup, SpotRead, SpotUpdate
 from app.services import fishability_service, species_service, spot_service
+from app.services.geocoding_service import (
+    GeocodingNotFound,
+    GeocodingProvider,
+    GeocodingUnavailable,
+)
+from app.services.overpass_service import WaterTypeDetectionUnavailable, WaterTypeProvider
 from app.services.weather_service import (
     ForecastOutOfRange,
     WeatherProvider,
@@ -38,6 +50,55 @@ async def create_spot(
 ) -> SpotRead:
     spot = await spot_service.create_spot(db, spot_in, created_by=current_user.id)
     return SpotRead.model_validate(spot)
+
+
+@router.get("/lookup", response_model=SpotLocationLookup)
+async def lookup_spot_location(
+    q: str | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
+    geocoding: GeocodingProvider = Depends(get_geocoding_provider),
+    water_types: WaterTypeProvider = Depends(get_water_type_provider),
+) -> SpotLocationLookup:
+    """Aide à la création d'un spot : trouve un point et les types d'eau qui s'y trouvent.
+
+    `q` accepte un code postal, une ville ou une adresse (géocodée via la BAN).
+    À défaut, `latitude`/`longitude` sont utilisées telles quelles (pointage sur
+    une carte). `available_water_types` liste les types détectés autour du
+    point : à Caen on retrouve rivière et canal, à Ouistreham mer et canal.
+    """
+    label = None
+    if q is not None:
+        try:
+            location = await geocoding.geocode(q)
+        except GeocodingNotFound as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except GeocodingUnavailable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Service de géocodage indisponible : {exc}",
+            ) from exc
+        latitude, longitude, label = location.latitude, location.longitude, location.label
+    elif latitude is None or longitude is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Fournir soit `q`, soit `latitude` et `longitude`",
+        )
+
+    try:
+        detection = await water_types.get_water_types(latitude, longitude)
+    except WaterTypeDetectionUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Détection du type d'eau indisponible : {exc}",
+        ) from exc
+
+    return SpotLocationLookup(
+        latitude=latitude,
+        longitude=longitude,
+        label=label,
+        available_water_types=[WaterType(value) for value in detection.water_types],
+    )
 
 
 @router.get("/{spot_id}", response_model=SpotRead)
@@ -92,6 +153,49 @@ async def get_spot_fishability(
     return FishabilityRead.model_validate(
         {"spot_id": spot.id, "species_id": species_id, **result}
     )
+
+
+@router.get("/{spot_id}/fishability/series", response_model=FishabilitySeriesRead)
+async def get_spot_fishability_series(
+    spot_id: int,
+    hours: int = Query(48, ge=1, le=168, description="Profondeur de la plage, en heures"),
+    species_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    weather: WeatherProvider = Depends(get_weather_provider),
+) -> FishabilitySeriesRead:
+    """Indice de pêchabilité heure par heure, pour tracer un graphique sur une plage.
+
+    Point de départ : l'heure pleine courante. `hours` fixe la profondeur (48 pour
+    2 jours, 168 pour une semaine) ; la série s'arrête plus tôt si elle dépasse la
+    fenêtre de prévision disponible plutôt que d'échouer.
+    """
+    spot = await spot_service.get_spot(db, spot_id)
+    if spot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Spot not found")
+
+    species = None
+    if species_id is not None:
+        species = await species_service.get_species(db, species_id)
+        if species is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Species not found")
+
+    start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+
+    points: list[FishabilityPoint] = []
+    for offset in range(hours):
+        try:
+            snapshot = await weather.get_snapshot(spot.latitude, spot.longitude, start + timedelta(hours=offset))
+        except ForecastOutOfRange:
+            break
+        except WeatherUnavailable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Service météo indisponible : {exc}",
+            ) from exc
+        result = fishability_service.compute_fishability(snapshot, species)
+        points.append(FishabilityPoint(at=result["at"], score=result["score"], rating=result["rating"]))
+
+    return FishabilitySeriesRead(spot_id=spot.id, species_id=species_id, points=points)
 
 
 @router.patch("/{spot_id}", response_model=SpotRead)

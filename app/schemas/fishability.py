@@ -33,8 +33,20 @@ class FishabilityRead(BaseModel):
     spot_id: int
     species_id: int | None = None
     at: datetime = Field(description="Heure pleine réellement évaluée, en UTC")
-    score: int = Field(ge=0, le=100, description="Indice de pêchabilité, forcé à 0 hors saison")
+    score: float = Field(ge=0, le=10, description="Indice de pêchabilité sur 10, forcé à 0 hors saison")
     rating: Literal["poor", "fair", "good", "excellent"]
     factors: list[FishabilityFactor]
     advisories: list[FishabilityAdvisory]
     weather: FishabilityWeather
+
+
+class FishabilityPoint(BaseModel):
+    at: datetime
+    score: float = Field(ge=0, le=10)
+    rating: Literal["poor", "fair", "good", "excellent"]
+
+
+class FishabilitySeriesRead(BaseModel):
+    spot_id: int
+    species_id: int | None = None
+    points: list[FishabilityPoint]

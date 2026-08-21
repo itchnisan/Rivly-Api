@@ -48,7 +48,7 @@ class WeatherResult(TypedDict):
 
 class FishabilityResult(TypedDict):
     at: datetime
-    score: int
+    score: float
     rating: Rating
     factors: list[FactorResult]
     advisories: list[AdvisoryResult]
@@ -244,12 +244,12 @@ def is_species_in_season(species: Species, at_date: date) -> bool | None:
     return today_md >= start_md or today_md <= end_md
 
 
-def rating_for(score: int) -> Rating:
-    if score < 35:
+def rating_for(score: float) -> Rating:
+    if score < 3.5:
         return "poor"
-    if score < 55:
+    if score < 5.5:
         return "fair"
-    if score < 75:
+    if score < 7.5:
         return "good"
     return "excellent"
 
@@ -330,7 +330,8 @@ def compute_fishability(
     advisories = build_advisories(species, snapshot.at)
 
     blocked = any(advisory["level"] == "blocking" for advisory in advisories)
-    score = 0 if blocked else round(sum(f["contribution"] for f in factors))
+    # Les facteurs contribuent sur 100 (poids historiques) ; l'indice affiché est /10.
+    score = 0.0 if blocked else round(sum(f["contribution"] for f in factors) / 10, 1)
 
     return {
         "at": snapshot.at,

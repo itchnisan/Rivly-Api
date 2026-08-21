@@ -140,9 +140,11 @@ def build_snapshot(payload: dict[str, Any], at: datetime) -> WeatherSnapshot:
     if not times or not sunrises or not sunsets:
         raise WeatherUnavailable("Réponse météo vide")
 
-    # Les séries sont horaires : on prend l'heure pleine la plus proche.
+    # Les séries sont horaires : on prend l'heure pleine la plus proche. La tolérance
+    # est la moitié du pas (30 min) pour qu'un instant hors fenêtre ne puisse jamais
+    # « accrocher » la dernière heure disponible et la renvoyer deux fois de suite.
     index = min(range(len(times)), key=lambda i: abs(times[i] - at))
-    if abs(times[index] - at) > timedelta(hours=1):
+    if abs(times[index] - at) > timedelta(minutes=30):
         raise ForecastOutOfRange(
             f"Aucune prévision disponible pour {at.isoformat()} "
             f"(fenêtre : {times[0].isoformat()} → {times[-1].isoformat()})"
